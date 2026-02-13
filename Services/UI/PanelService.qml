@@ -324,32 +324,15 @@ Singleton {
   // These methods work for both normal (SmartPanel) and overlay modes
 
   function isLauncherOpen(screen) {
-    if (Settings.data.appLauncher.overviewLayer) {
-      return overlayLauncherOpen && overlayLauncherScreen === screen;
-    } else {
-      var panel = getPanel("launcherPanel", screen);
-      return panel ? panel.isPanelOpen : false;
-    }
+    return withOpenLauncher(screen, () => true) ?? false;
   }
 
   function getLauncherSearchText(screen) {
-    if (Settings.data.appLauncher.overviewLayer) {
-      return overlayLauncherCore ? overlayLauncherCore.searchText : "";
-    } else {
-      var panel = getPanel("launcherPanel", screen);
-      return panel ? panel.searchText : "";
-    }
+    return withOpenLauncher(screen, launcher => launcher.searchText) ?? "";
   }
 
   function setLauncherSearchText(screen, text) {
-    if (Settings.data.appLauncher.overviewLayer) {
-      if (overlayLauncherCore)
-        overlayLauncherCore.setSearchText(text);
-    } else {
-      var panel = getPanel("launcherPanel", screen);
-      if (panel)
-        panel.setSearchText(text);
-    }
+    withOpenLauncher(screen, launcher => launcher.setSearchText(text));
   }
 
   function openLauncherWithSearch(screen, searchText) {
@@ -370,13 +353,25 @@ Singleton {
   }
 
   function closeLauncher(screen) {
+    withOpenLauncher(screen, panel => panel.close(), () => closeOverlayLauncher());
+  }
+
+  function withOpenLauncher(screen, callbackPanelOrOverlay, callbackOverlay = null) {
     if (Settings.data.appLauncher.overviewLayer) {
-      closeOverlayLauncher();
+      if (overlayLauncherCore) {
+        if (callbackOverlay) {
+          return callbackOverlay(overlayLauncherCore);
+        } else {
+          return callbackPanelOrOverlay(overlayLauncherCore);
+        }
+      }
     } else {
       var panel = getPanel("launcherPanel", screen);
-      if (panel)
-        panel.close();
+      if (panel && panel.isPanelOpen && panel.launcherCoreRef) {
+        return callbackPanelOrOverlay(panel.launcherCoreRef);
+      }
     }
+    return null;
   }
 
   // Close any open panel (for general use)
