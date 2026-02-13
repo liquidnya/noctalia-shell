@@ -245,33 +245,44 @@ Singleton {
     function search(query: string) {
       root.screenDetector.withCurrentScreen(screen => {
                                               const q = query.trim();
-                                              var searchText = PanelService.getLauncherSearchText(screen);
-                                              var hasQuery;
+                                              const currentSearchText = PanelService.getLauncherSearchText(screen);
+                                              let hasQuery;
+                                              let newSearchText;
                                               if (q.length) {
-                                                hasQuery = searchText.startsWith(q);
+                                                hasQuery = currentSearchText.startsWith(q);
+                                                newSearchText = `${q} `;
                                               } else {
-                                                hasQuery = !searchText.startsWith(">");
+                                                hasQuery = !currentSearchText.startsWith(">");
+                                                newSearchText = q;
                                               }
                                               if (!PanelService.isLauncherOpen(screen)) {
-                                                PanelService.openLauncherWithSearch(screen, `${q} `);
+                                                PanelService.openLauncherWithSearch(screen, newSearchText);
                                               } else if (hasQuery) {
                                                 PanelService.closeLauncher(screen);
                                               } else {
-                                                PanelService.setLauncherSearchText(screen, `${q} `);
+                                                PanelService.setLauncherSearchText(screen, newSearchText);
                                               }
                                             }, Settings.data.appLauncher.overviewLayer);
     }
-    function settings() {
+
+    readonly property var _launcherSelectActions: ({
+                                                     "first": launcher => launcher.selectFirst(),
+                                                     "last": launcher => launcher.selectLast(),
+                                                     "next": launcher => launcher.selectNext(),
+                                                     "previous": launcher => launcher.selectPrevious(),
+                                                     "next_wrapped": launcher => launcher.selectNextWrapped(),
+                                                     "previous_wrapped": launcher => launcher.selectPreviousWrapped(),
+                                                     "next_page": launcher => launcher.selectPageDown(),
+                                                     "previous_page": launcher => launcher.selectPageUp()
+                                                   })
+
+    function select(action: string) {
       root.screenDetector.withCurrentScreen(screen => {
-                                              var searchText = PanelService.getLauncherSearchText(screen);
-                                              var isInSettingsMode = searchText.startsWith(">settings");
-                                              if (!PanelService.isLauncherOpen(screen)) {
-                                                PanelService.openLauncherWithSearch(screen, ">settings ");
-                                              } else if (isInSettingsMode) {
-                                                PanelService.closeLauncher(screen);
-                                              } else {
-                                                PanelService.setLauncherSearchText(screen, ">settings ");
-                                              }
+                                              PanelService.withOpenLauncher(screen, launcher => {
+                                                                              if (action in _launcherSelectActions) {
+                                                                                _launcherSelectActions[action](launcher);
+                                                                              }
+                                                                            });
                                             }, Settings.data.appLauncher.overviewLayer);
     }
   }
