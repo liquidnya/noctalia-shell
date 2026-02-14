@@ -206,6 +206,12 @@ Rectangle {
     }
   }
 
+  function setSearchTextCursor(position: int) {
+    if (searchInput.inputItem) {
+      searchInput.inputItem.cursorPosition = position;
+    }
+  }
+
   // Provider registration
   function registerProvider(provider) {
     providers.push(provider);

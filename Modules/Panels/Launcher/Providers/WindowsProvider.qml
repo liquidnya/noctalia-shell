@@ -32,6 +32,19 @@ Item {
             "onActivate": function () {
               launcher.setSearchText(">win ");
             }
+          },
+          {
+            "name": ">win[app_id]",
+            "description": I18n.tr("launcher.providers.windows-search-description"),
+            "icon": "app-window",
+            "isTablerIcon": true,
+            "isImage": false,
+            "onActivate": function () {
+              const prefix = ">win[";
+              const suffix = "] ";
+              launcher.setSearchText(`${prefix}${suffix}`);
+              launcher.setSearchTextCursor(prefix.length);
+            }
           }
         ];
   }
@@ -40,54 +53,119 @@ Item {
     if (!query)
       return [];
 
-    var trimmed = query.trim();
+    let trimmed = query.trim();
+    let searchTerm = "";
+    let searchAppId = "";
+
+    const isCommandMode = trimmed.startsWith(">win");
 
     // Handle command mode: ">win" or ">win <search>"
-    var isCommandMode = trimmed.startsWith(">win");
     if (isCommandMode) {
       // Extract search term after ">win "
-      var searchTerm = trimmed.substring(4).trim();
+      searchTerm = trimmed.substring(4);
+
+      if (!searchTerm.startsWith("[")) {
+        // search term is trimmed here and not above to distinguish between ">win[" and ">win ["
+        searchTerm = searchTerm.trim();
+      } else {
+        // app_id is present
+        const end = searchTerm.indexOf(']');
+        if (end === -1) {
+          // only filter by app_id
+          searchAppId = searchTerm.substring(1).trim();
+          searchTerm = "";
+        } else {
+          // filter by app_id and search term
+          searchAppId = searchTerm.substring(1, end).trim();
+          searchTerm = searchTerm.substring(end + 1).trim();
+        }
+      }
+
       // In command mode, show all windows if no search term
-      if (searchTerm.length === 0) {
+      if (searchTerm.length === 0 && searchAppId.length === 0) {
         return getAllWindows();
       }
-      trimmed = searchTerm;
     } else {
       // Regular search mode - require at least 2 chars
       if (trimmed.length < 2)
         return [];
+      searchTerm = trimmed;
     }
 
-    var items = [];
+    let items = [];
+    let hasExactAppId = false;
+    const searchKeys = ["title"];
+    // do not search in appId with searchTerm if searchAppId is present
+    if (searchAppId.length === 0) {
+      searchKeys.push("appId");
+    }
+    const scoreFn = result => (result.obj.score + result.score) / 2;
+    const mapResult = result => {
+      const obj = result.obj;
+      obj.score = result.score;
+      return obj;
+    };
+    const newResult = (obj, score) => {
+      const result = {
+        obj,
+        score
+      };
+      result.score = scoreFn(result);
+      return result;
+    };
+    const exactMatchScore = 1;
 
     // Collect all windows from CompositorService
-    for (var i = 0; i < CompositorService.windows.count; i++) {
-      var win = CompositorService.windows.get(i);
-      items.push({
-                   "id": win.id,
-                   "title": win.title || "",
-                   "appId": win.appId || "",
-                   "workspaceId": win.workspaceId,
-                   "isFocused": win.isFocused,
-                   "searchText": (win.title + " " + win.appId).toLowerCase()
-                 });
+    for (let i = 0; i < CompositorService.windows.count; i++) {
+      const win = CompositorService.windows.get(i);
+      if (searchAppId.length !== 0 && win.appId === searchAppId) {
+        hasExactAppId = true;
+      }
+      const obj = {
+        "id": win.id,
+        "title": win.title || "",
+        "appId": win.appId || "",
+        "workspaceId": win.workspaceId,
+        "isFocused": win.isFocused,
+        // Note that the score will be mutated
+        "score": 1
+      };
+      // TODO: is searchText even needed anymore?
+      obj.searchText = searchKeys.map(key => obj[key]).join(" ").toLowerCase();
+
+      items.push(obj);
     }
 
-    // Fuzzy search on title and appId
-    var results = FuzzySort.go(trimmed, items, {
-                                 "keys": ["title", "appId"],
-                                 "limit": 10
-                               });
+    // Either filter by exact appId or fuzzy search on appId
+    if (hasExactAppId) {
+      items = items.filter(item => item.appId === searchAppId).map(item => mapResult(newResult(item, exactMatchScore)));
+    }
+    // Note that this is not in an else case on purpose
+    // Otherwise the order of items would suddenly change when hasExactAppId is true
+    if (searchAppId.length !== 0) {
+      items = FuzzySort.go(searchAppId, items, {
+                             keys: ["appId"],
+                             scoreFn
+                           }).map(mapResult);
+    }
+
+    // Fuzzy search on searchKeys
+    if (searchTerm.length !== 0) {
+      items = FuzzySort.go(searchTerm, items, {
+                             keys: searchKeys,
+                             limit: 10,
+                             scoreFn
+                           }).map(mapResult);
+    }
 
     // Map to launcher items
-    var launcherItems = [];
-    for (var j = 0; j < results.length; j++) {
-      var entry = results[j].obj;
-      var score = results[j].score;
+    const launcherItems = [];
+    for (let j = 0; j < items.length; j++) {
+      const entry = items[j];
 
       // Get icon name from DesktopEntry if available, otherwise use appId
-      var iconName = entry.appId;
-      var appEntry = ThemeIcons.findAppEntry(entry.appId);
+      let iconName = entry.appId;
+      const appEntry = ThemeIcons.findAppEntry(entry.appId);
       if (appEntry && appEntry.icon) {
         iconName = appEntry.icon;
       }
@@ -98,7 +176,7 @@ Item {
                            "icon": iconName || "application-x-executable",
                            "isTablerIcon": false,
                            "badgeIcon": "app-window",
-                           "_score": score,
+                           "_score": entry.score,
                            "provider": root,
                            "windowId": entry.id,
                            "onActivate": createActivateHandler(entry)
